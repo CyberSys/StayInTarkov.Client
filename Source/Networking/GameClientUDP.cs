@@ -8,6 +8,7 @@ using LiteNetLib.Utils;
 using Sirenix.Utilities;
 using StayInTarkov.Configuration;
 using StayInTarkov.Coop;
+using StayInTarkov.Coop.Components;
 using StayInTarkov.Coop.Components.CoopGameComponents;
 using StayInTarkov.Coop.Matchmaker;
 using StayInTarkov.Coop.NetworkPacket;
@@ -51,10 +52,14 @@ namespace StayInTarkov.Networking
         public float DownloadSpeedKbps { get; private set; } = 0;
         public float UploadSpeedKbps { get; private set; } = 0;
         public uint PacketLoss { get; private set; } = 0;
+        public ActionPacketHandlerComponent PacketHandler { get; private set; }
+        public SITGameServerClientDataProcessing DataProcessor { get; private set; }
+
         private ManualLogSource Logger { get; set; }
 
         void Awake()
         {
+
             CoopGameComponent = CoopPatches.CoopGameComponentParent.GetComponent<SITGameComponent>();
             Logger = BepInEx.Logging.Logger.CreateLogSource(nameof(GameClientUDP));
 
@@ -63,6 +68,10 @@ namespace StayInTarkov.Networking
 
         public async void Start()
         {
+            PacketHandler = this.GetOrAddComponent<ActionPacketHandlerComponent>();
+            DataProcessor = this.GetOrAddComponent<SITGameServerClientDataProcessing>();
+
+
             _packetProcessor.RegisterNestedType(Vector3Utils.Serialize, Vector3Utils.Deserialize);
             _packetProcessor.RegisterNestedType(Vector2Utils.Serialize, Vector2Utils.Deserialize);
             _packetProcessor.RegisterNestedType(PhysicalUtils.Serialize, PhysicalUtils.Deserialize);
@@ -193,7 +202,7 @@ namespace StayInTarkov.Networking
         void INetEventListener.OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod)
         {
             var bytes = reader.GetRemainingBytes();
-            SITGameServerClientDataProcessing.ProcessPacketBytes(bytes, Encoding.UTF8.GetString(bytes));
+            Singleton<ISITGame>.Instance.GameClient.DataProcessor.AddPacketToQueue(bytes, Encoding.UTF8.GetString(bytes));
 
 #if DEBUG
             if (_netClient.Statistics.PacketLossPercent > 0)

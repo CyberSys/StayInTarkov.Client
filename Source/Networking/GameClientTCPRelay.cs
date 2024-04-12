@@ -1,4 +1,5 @@
-﻿using StayInTarkov.Coop.Matchmaker;
+﻿using StayInTarkov.Coop.Components;
+using StayInTarkov.Coop.Matchmaker;
 using StayInTarkov.Coop.NetworkPacket;
 using System;
 using System.Collections.Concurrent;
@@ -13,7 +14,7 @@ namespace StayInTarkov.Networking
 {
     public class GameClientTCPRelay : MonoBehaviour, IGameClient
     {
-        public BlockingCollection<byte[]> PooledBytesToPost { get; } = [];
+        public BlockingCollection<byte[]> PooledBytesToSend { get; } = [];
         public float DownloadSpeedKbps { get; private set; } = 0;
         public float UploadSpeedKbps { get; private set; } = 0;
         public uint PacketLoss { get; private set; } = 0;
@@ -25,6 +26,10 @@ namespace StayInTarkov.Networking
             }
         }
 
+        public ActionPacketHandlerComponent PacketHandler { get; private set; }
+        public SITGameServerClientDataProcessing DataProcessor { get; private set; }
+
+
         void Awake()
         {
             AkiBackendCommunication.Instance.WebSocketClose();
@@ -33,15 +38,17 @@ namespace StayInTarkov.Networking
 
         void Start()
         {
+            PacketHandler = this.GetOrAddComponent<ActionPacketHandlerComponent>();
+            DataProcessor = this.GetOrAddComponent<SITGameServerClientDataProcessing>();
         }
 
         void Update()
         {
-            if (PooledBytesToPost != null)
+            if (PooledBytesToSend != null)
             {
-                while (PooledBytesToPost.Any())
+                while (PooledBytesToSend.Any())
                 {
-                    while (PooledBytesToPost.TryTake(out var bytes))
+                    while (PooledBytesToSend.TryTake(out var bytes))
                     {
                         AkiBackendCommunication.Instance.PostDownWebSocketImmediately(bytes);
                     }
@@ -54,7 +61,7 @@ namespace StayInTarkov.Networking
             if (data == null)
                 return;
 
-            PooledBytesToPost.Add(data);
+            PooledBytesToSend.Add(data);
         }
 
         public void SendData<T>(ref T packet) where T : BasePacket

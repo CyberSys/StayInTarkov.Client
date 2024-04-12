@@ -1,10 +1,12 @@
-﻿using StayInTarkov.Coop.NetworkPacket;
+﻿using StayInTarkov.Coop.Components;
+using StayInTarkov.Coop.NetworkPacket;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace StayInTarkov.Networking
 {
@@ -17,6 +19,9 @@ namespace StayInTarkov.Networking
         public float UploadSpeedKbps { get; }
         public float DownloadSpeedKbps { get; }
         public uint PacketLoss { get; }
+        public ActionPacketHandlerComponent PacketHandler { get; }
+        public SITGameServerClientDataProcessing DataProcessor { get; }
+
 
         /// <summary>
         /// Reset stats and compute download/upload speed and packet loss

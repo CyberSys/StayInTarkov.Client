@@ -14,10 +14,12 @@ using Comfort.Common;
 using Mono.Cecil;
 using StayInTarkov.Coop.SITGameModes;
 using StayInTarkov.Coop.NetworkPacket.Player;
+using UnityEngine;
+using System.Collections.Concurrent;
 
 namespace StayInTarkov.Networking
 {
-    public static class SITGameServerClientDataProcessing
+    public class SITGameServerClientDataProcessing : MonoBehaviour
     {
         public const string PACKET_TAG_METHOD = "m";
         public const string PACKET_TAG_SERVERID = "serverId";
@@ -27,12 +29,25 @@ namespace StayInTarkov.Networking
 
         public static ManualLogSource Logger { get; }
 
+        private ConcurrentQueue<(byte[], string)> QueuedBytes = new();
+
         static SITGameServerClientDataProcessing()
         {
             Logger = BepInEx.Logging.Logger.CreateLogSource($"{nameof(SITGameServerClientDataProcessing)}");
         }
 
-        public static void ProcessPacketBytes(byte[] data, string sData)
+        void Update()
+        {
+            while (QueuedBytes.TryDequeue(out var result))
+                ProcessPacketBytes(result.Item1, result.Item2);
+        }
+
+        public void AddPacketToQueue(byte[] data, string sData)
+        {
+            QueuedBytes.Enqueue((data, sData));
+        }
+
+        private void ProcessPacketBytes(byte[] data, string sData)
         {
             try
             {
@@ -70,13 +85,13 @@ namespace StayInTarkov.Networking
                     ProcessSITPacket(data, ref packet, out sitPacket);
                 }
 
-                var coopGameComponent = SITGameComponent.GetCoopGameComponent();
+                //var coopGameComponent = SITGameComponent.GetCoopGameComponent();
 
-                if (coopGameComponent == null)
-                {
-                    Logger.LogError($"{nameof(ProcessPacketBytes)}. coopGameComponent is Null");
-                    return;
-                }
+                //if (coopGameComponent == null)
+                //{
+                //    Logger.LogError($"{nameof(ProcessPacketBytes)}. coopGameComponent is Null");
+                //    return;
+                //}
 
                 if (packet == null)
                 {
@@ -105,20 +120,20 @@ namespace StayInTarkov.Networking
                 }
 
                 // If this is an endSession packet, end the session for the clients
-                if (packet.ContainsKey("endSession") && SITMatchmaking.IsClient)
-                {
-                    Logger.LogDebug("Received EndSession from Server. Ending Game.");
-                    if (coopGameComponent.LocalGameInstance == null)
-                        return;
+                //if (packet.ContainsKey("endSession") && SITMatchmaking.IsClient)
+                //{
+                //    Logger.LogDebug("Received EndSession from Server. Ending Game.");
+                //    if (coopGameComponent.LocalGameInstance == null)
+                //        return;
 
-                    coopGameComponent.ServerHasStopped = true;
-                    return;
-                }
+                //    coopGameComponent.ServerHasStopped = true;
+                //    return;
+                //}
 
-                // -------------------------------------------------------
-                // Add to the Coop Game Component Action Packets
-                if (coopGameComponent == null || coopGameComponent.ActionPackets == null || coopGameComponent.ActionPacketHandler == null)
-                    return;
+                //// -------------------------------------------------------
+                //// Add to the Coop Game Component Action Packets
+                //if (coopGameComponent == null || coopGameComponent.ActionPackets == null || coopGameComponent.ActionPacketHandler == null)
+                //    return;
 
                 //if (packet.ContainsKey(PACKET_TAG_METHOD)
                 //    && packet[PACKET_TAG_METHOD].ToString() == "Move")
@@ -130,8 +145,12 @@ namespace StayInTarkov.Networking
                 //}
                 //else
                 //{
+
+                if (!Singleton<ISITGame>.Instantiated)
+                    return;
+
                 if (sitPacket != null)
-                    coopGameComponent.ActionPacketHandler.ActionSITPackets.Add(sitPacket);
+                    Singleton<ISITGame>.Instance.GameClient.PacketHandler.ActionSITPackets.Add(sitPacket);
                 else
                 {
 #if DEBUG
@@ -139,7 +158,7 @@ namespace StayInTarkov.Networking
                     Logger.LogDebug($">> Convert the following packet to binary <<");
                     Logger.LogDebug($"{packet.ToJson()}");
 #endif 
-                    coopGameComponent.ActionPacketHandler.ActionPackets.TryAdd(packet);
+                    Singleton<ISITGame>.Instance.GameClient.PacketHandler.ActionPackets.TryAdd(packet);
                 }
                 //}
 
@@ -150,16 +169,9 @@ namespace StayInTarkov.Networking
             }
         }
 
-        public static void ProcessSITPacket(byte[] data, ref Dictionary<string, object> dictObject, out ISITPacket packet)
+        public void ProcessSITPacket(byte[] data, ref Dictionary<string, object> dictObject, out ISITPacket packet)
         {
             packet = null;
-
-            var coopGameComponent = SITGameComponent.GetCoopGameComponent();
-            if (coopGameComponent == null)
-            {
-                Logger.LogError($"{nameof(ProcessSITPacket)}. coopGameComponent is Null");
-                return;
-            }
 
             // If the data is empty. Return;
             if (data == null || data.Length == 0)
@@ -177,9 +189,9 @@ namespace StayInTarkov.Networking
 
             var serverId = stringData.Substring(3, 24);
             // If the serverId is not the same as the one we are connected to. Return;
-            if (serverId != coopGameComponent.ServerId)
+            if (serverId != SITMatchmaking.GetGroupId())
             {
-                Logger.LogError($"{nameof(ProcessSITPacket)}. {serverId} does not equal {coopGameComponent.ServerId}");
+                Logger.LogError($"{nameof(ProcessSITPacket)}. {serverId} does not equal {SITMatchmaking.GetGroupId()}");
                 return;
             }
 
@@ -207,7 +219,7 @@ namespace StayInTarkov.Networking
             packet = DeserializeIntoPacket(data, packet, bp);
         }
 
-        private static ISITPacket DeserializeIntoPacket(byte[] data, ISITPacket packet, BasePacket bp)
+        private ISITPacket DeserializeIntoPacket(byte[] data, ISITPacket packet, BasePacket bp)
         {
             var sitPacketType =
                             StayInTarkovHelperConstants
@@ -230,42 +242,6 @@ namespace StayInTarkov.Networking
             return packet;
         }
 
-        public static bool ProcessDataListPacket(ref Dictionary<string, object> packet)
-        {
-            var coopGC = SITGameComponent.GetCoopGameComponent();
-            if (coopGC == null)
-                return false;
-
-            if (!packet.ContainsKey("dataList"))
-                return false;
-
-            JArray dataList = JArray.FromObject(packet["dataList"]);
-
-            //Logger.LogDebug(packet.ToJson());   
-
-            foreach (var d in dataList)
-            {
-                // TODO: This needs to be a little more dynamic but for now. This switch will do.
-                // Depending on the method defined, deserialize packet to defined type
-                switch (packet[PACKET_TAG_METHOD].ToString())
-                {
-                    case "PlayerStates":
-                        PlayerStatePacket playerStatePacket = new PlayerStatePacket();
-                        playerStatePacket = (PlayerStatePacket)playerStatePacket.Deserialize((byte[])d);
-                        if (playerStatePacket == null || string.IsNullOrEmpty(playerStatePacket.ProfileId))
-                            continue;
-
-                        if (coopGC.Players.ContainsKey(playerStatePacket.ProfileId))
-                            coopGC.Players[playerStatePacket.ProfileId].ReceivePlayerStatePacket(playerStatePacket);
-
-                        break;
-                    case "Multiple":
-                        break;
-                }
-
-            }
-
-            return true;
-        }
+        
     }
 }

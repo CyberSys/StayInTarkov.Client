@@ -1,6 +1,7 @@
 ﻿using BepInEx.Logging;
 using Comfort.Common;
 using EFT;
+using EFT.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using StayInTarkov.Configuration;
@@ -117,7 +118,7 @@ namespace StayInTarkov.Networking
 
             GetHeaders();
             ConnectToAkiBackend();
-            PeriodicallySendPing();
+            //PeriodicallySendPing();
             //PeriodicallySendPooledData();
 
             SITGameServerClientDataProcessing.OnLatencyUpdated += OnLatencyUpdated;
@@ -218,7 +219,10 @@ namespace StayInTarkov.Networking
 
         private void WebSocket_OnError()
         {
-            Logger.LogError($"Your PC has failed to connect and send data to the WebSocket with the port {PluginConfigSettings.Instance.CoopSettings.SITWebSocketPort} on the Server {StayInTarkovHelperConstants.GetBackendUrl()}! Application will now close.");
+            var error = $"Your PC has failed to connect and send data to the WebSocket with the port {PluginConfigSettings.Instance.CoopSettings.SITWebSocketPort} on the Server {StayInTarkovHelperConstants.GetBackendUrl()}! Application will now close.";
+            Logger.LogError(error);
+            ConsoleScreen.LogError(error);
+
             if (Singleton<ISITGame>.Instantiated)
             {
                 Singleton<ISITGame>.Instance.Stop(Singleton<GameWorld>.Instance.MainPlayer.ProfileId, Singleton<ISITGame>.Instance.MyExitStatus, Singleton<ISITGame>.Instance.MyExitLocation);
@@ -235,7 +239,10 @@ namespace StayInTarkov.Networking
             Interlocked.Add(ref BytesReceived, e.RawData.Length);
             GC.AddMemoryPressure(e.RawData.Length);
 
-            SITGameServerClientDataProcessing.ProcessPacketBytes(e.RawData, e.Data);
+            if (!Singleton<ISITGame>.Instantiated)
+                return;
+
+            Singleton<ISITGame>.Instance.GameClient.DataProcessor.AddPacketToQueue(e.RawData, e.Data);
             GC.RemoveMemoryPressure(e.RawData.Length);
         }
 
@@ -431,45 +438,45 @@ namespace StayInTarkov.Networking
         //    });
         //}
 
-        private Task PeriodicallySendPingTask { get; set; }
+        //private Task PeriodicallySendPingTask { get; set; }
 
-        private void PeriodicallySendPing()
-        {
-            PeriodicallySendPingTask = Task.Run(async () =>
-            {
-                int awaitPeriod = 2000;
-                while (true)
-                {
-                    try
-                    {
-                        await Task.Delay(awaitPeriod);
+        //private void PeriodicallySendPing()
+        //{
+        //    PeriodicallySendPingTask = Task.Run(async () =>
+        //    {
+        //        int awaitPeriod = 2000;
+        //        while (true)
+        //        {
+        //            try
+        //            {
+        //                await Task.Delay(awaitPeriod);
 
-                        if (WebSocket == null)
-                            continue;
+        //                if (WebSocket == null)
+        //                    continue;
 
-                        if (WebSocket.ReadyState != WebSocketSharp.WebSocketState.Open)
-                            continue;
+        //                if (WebSocket.ReadyState != WebSocketSharp.WebSocketState.Open)
+        //                    continue;
 
-                        if (!SITGameComponent.TryGetCoopGameComponent(out var coopGameComponent))
-                            continue;
+        //                if (!SITGameComponent.TryGetCoopGameComponent(out var coopGameComponent))
+        //                    continue;
 
-                        var packet = new
-                        {
-                            m = "Ping",
-                            t = DateTime.UtcNow.Ticks.ToString("G"),
-                            profileId = ProfileId,
-                            serverId = coopGameComponent.ServerId
-                        };
+        //                var packet = new
+        //                {
+        //                    m = "Ping",
+        //                    t = DateTime.UtcNow.Ticks.ToString("G"),
+        //                    profileId = ProfileId,
+        //                    serverId = coopGameComponent.ServerId
+        //                };
 
-                        WebSocket.Send(Encoding.UTF8.GetBytes(packet.ToJson()));
-                        packet = null;
-                    } catch (Exception ex)
-                    {
-                        Logger.LogError($"Periodic ping caught: {ex.GetType()} {ex.Message}");
-                    }
-                }
-            });
-        }
+        //                WebSocket.Send(Encoding.UTF8.GetBytes(packet.ToJson()));
+        //                packet = null;
+        //            } catch (Exception ex)
+        //            {
+        //                Logger.LogError($"Periodic ping caught: {ex.GetType()} {ex.Message}");
+        //            }
+        //        }
+        //    });
+        //}
 
         private void OnLatencyUpdated(ushort latencyMs)
         {
